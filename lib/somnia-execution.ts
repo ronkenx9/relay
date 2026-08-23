@@ -49,4 +49,13 @@ export async function reconcileOrder(privateKey: `0x${string}`, pool: string, or
   finally { sdk.close(); }
 }
 
+/** Indexer history is used only after chain head says the order is no longer active. */
+export async function reconcileTerminalOrder(privateKey: `0x${string}`, pool: string, orderId: string) {
+  const sdk = exchange(privateKey);
+  try {
+    const owner = signerAddress(privateKey);
+    return (await sdk.client.getOrders(owner, { pool, limit: 50 })).find((order) => order.orderId === orderId) ?? null;
+  } finally { sdk.close(); }
+}
+
 export function signerAddress(privateKey: `0x${string}`) { return privateKeyToAccount(privateKey).address; }

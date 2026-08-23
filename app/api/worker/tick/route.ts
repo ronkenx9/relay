@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { activeIntent, currentHop, recordPlacement, recordReconciliation, setIntentState, startSuccessorHop } from "../../../../lib/intents";
 import { selectDirectSuccessor, unitsToDecimal } from "../../../../lib/relay-core";
-import { assertTradableMarket, placeBoundedLimit, reconcileOrder } from "../../../../lib/somnia-execution";
+import { assertTradableMarket, placeBoundedLimit, reconcileOrder, reconcileTerminalOrder } from "../../../../lib/somnia-execution";
 import { getLiveMarkets, getMarketById } from "../../../../lib/somnia";
 
 export const runtime = "edge";
@@ -45,7 +45,9 @@ export async function POST(request: Request): Promise<Response> {
     const source = await getMarketById(hop.sourceMarketId);
     if (!source) return fail(intent.id, "Could not prove source market identity after the order left the book.");
     if (Number(source.expiry) > Math.floor(Date.now() / 1000)) return fail(intent.id, "Order disappeared before market expiry; reconciliation is ambiguous and no roll will be sent.");
-    const remainder = hop.remainingQuantity;
+    const indexed = await reconcileTerminalOrder(config().privateKey, hop.poolAddress, hop.orderId);
+    if (!indexed) return fail(intent.id, "Expired order is not yet indexed; RELAY will wait rather than guess its remainder.");
+    const remainder = indexed.quantityRemaining.toString();
     if (remainder === "0") { await recordReconciliation(intent.id, "0", "FILLED"); return Response.json({ state: "COMPLETED", intentId: intent.id }); }
     if (intent.rollsUsed >= 1) return fail(intent.id, "One-successor-roll bound reached; remaining exposure is paused.");
     const successor = selectDirectSuccessor({ operatorId: intent.operatorId, venueId: intent.venueId, asset: intent.asset, intervalSec: intent.intervalSec, marketId: source.marketId, expiry: Number(source.expiry) }, live.filter((item) => item.operatorId !== null && item.venueId).map((item) => ({ operatorId: item.operatorId!, venueId: item.venueId!, asset: item.asset, intervalSec: Number(item.intervalSec), marketId: item.marketId, expiry: Number(item.expiry) })));
