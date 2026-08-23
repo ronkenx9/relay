@@ -28,6 +28,11 @@ export async function latestIntent() {
   return (await db.select().from(intents).orderBy(desc(intents.createdAt)).limit(1))[0] || null;
 }
 
+export async function intentById(intentId: string) {
+  const db = getDb();
+  return (await db.select().from(intents).where(eq(intents.id, intentId)).limit(1))[0] || null;
+}
+
 export async function activeIntent() {
   const db = getDb();
   return (await db.select().from(intents).where(inArray(intents.state, ["ARMED", "PLACING", "ACTIVE", "ROLLING"])).orderBy(desc(intents.createdAt)).limit(1))[0] || null;
@@ -61,6 +66,16 @@ export async function recordReconciliation(intentId: string, remaining: string, 
     db.update(hops).set({ remainingQuantity: remaining, filledQuantity: (BigInt(hop.alignedQuantity ?? "0") - BigInt(remaining)).toString(), state, updatedAt: now }).where(eq(hops.id, hop.id)),
     db.update(intents).set({ state: remaining === "0" ? "COMPLETED" : "ACTIVE", remainingQuantity: remaining, updatedAt: now }).where(eq(intents.id, intentId)),
     db.insert(events).values({ intentId, type: "ORDER_RECONCILED", payload: JSON.stringify({ remaining, state }), createdAt: now }),
+  ]);
+}
+
+export async function recordCancellation(intentId: string, transactionHash: string) {
+  const db = getDb(); const now = timestamp(); const hop = await currentHop(intentId);
+  if (!hop) throw new Error("Missing relay hop.");
+  await db.batch([
+    db.update(hops).set({ transactionHash, state: "CANCELLED", updatedAt: now }).where(eq(hops.id, hop.id)),
+    db.update(intents).set({ state: "PAUSED", lastError: "Cancelled by operator.", updatedAt: now }).where(eq(intents.id, intentId)),
+    db.insert(events).values({ intentId, type: "ORDER_CANCELLED", payload: JSON.stringify({ transactionHash }), createdAt: now }),
   ]);
 }
 

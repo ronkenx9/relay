@@ -49,6 +49,15 @@ export async function reconcileOrder(privateKey: `0x${string}`, pool: string, or
   finally { sdk.close(); }
 }
 
+export async function cancelRestingOrder(privateKey: `0x${string}`, pool: string, orderId: string) {
+  const sdk = exchange(privateKey);
+  try {
+    const result = await sdk.client.createTrader({ privateKey }).cancelOrder({ pool: pool as Address, orderId: BigInt(orderId) });
+    if (result.receipt.status !== "success") throw new Error("Cancel transaction was mined without success.");
+    return result.hash;
+  } finally { sdk.close(); }
+}
+
 /** Indexer history is used only after chain head says the order is no longer active. */
 export async function reconcileTerminalOrder(privateKey: `0x${string}`, pool: string, orderId: string) {
   const sdk = exchange(privateKey);
