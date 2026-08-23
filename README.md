@@ -32,3 +32,7 @@ npm run dev
 ```
 
 Run `npm run build && npm run lint` before deployment.
+
+## Operator activation
+
+See [RUNBOOK.md](RUNBOOK.md) for the one-order qualification, reconciliation, rollover, pause/recovery, and evidence procedure. Never add a private key to the repository or browser bundle.
