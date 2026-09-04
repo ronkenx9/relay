@@ -1,0 +1,25 @@
+name: RELAY worker tick
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke protected RELAY worker
+        env:
+          RELAY_WORKER_URL: ${{ secrets.RELAY_WORKER_URL }}
+          RELAY_WORKER_TOKEN: ${{ secrets.RELAY_WORKER_TOKEN }}
+          RELAY_SITES_BYPASS_TOKEN: ${{ secrets.RELAY_SITES_BYPASS_TOKEN }}
+        run: |
+          test -n "$RELAY_WORKER_URL"
+          test -n "$RELAY_WORKER_TOKEN"
+          test -n "$RELAY_SITES_BYPASS_TOKEN"
+          curl --fail-with-body --request POST "$RELAY_WORKER_URL/api/worker/tick" \
+            --header "x-relay-worker-token: $RELAY_WORKER_TOKEN" \
+            --header "OAI-Sites-Authorization: Bearer $RELAY_SITES_BYPASS_TOKEN"

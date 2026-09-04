@@ -8,6 +8,9 @@ export const SHANNON = {
 
 export type LiveMarket = { marketId: string; poolAddress: string; asset: string; intervalSec: string; expiry: string; tradingStart: string; operatorId: number | null; venueId: string | null; status: string; collateral: string };
 
+type MarketRow = { id: string; poolAddress: string; asset: string; intervalSec: string | null; expiry: string; tradingStart: string; operatorId: number | null; venueId: string | null; clobStatus: string | null; collateral: string };
+const toLiveMarket = (m: MarketRow): LiveMarket => ({ marketId: m.id, poolAddress: m.poolAddress, asset: m.asset, intervalSec: m.intervalSec ?? "", expiry: m.expiry, tradingStart: m.tradingStart, operatorId: m.operatorId, venueId: m.venueId, status: m.clobStatus ?? "Unknown", collateral: m.collateral });
+
 async function graphql<T>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
   const response = await fetch(SHANNON.indexer, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query, variables }), cache: "no-store" });
   const payload = await response.json() as { data?: T; errors?: { message: string }[] };
@@ -17,10 +20,15 @@ async function graphql<T>(query: string, variables: Record<string, unknown> = {}
 
 export async function getLiveMarkets(): Promise<LiveMarket[]> {
   const now = String(Math.floor(Date.now() / 1000));
-  const data = await graphql<{ Market: Array<{ id: string; poolAddress: string; asset: string; intervalSec: string | null; expiry: string; tradingStart: string; operatorId: number | null; venueId: string | null; clobStatus: string | null; collateral: string }> }>(
+  const data = await graphql<{ Market: MarketRow[] }>(
     `query RelayMarkets($now:numeric!) { Market(where:{marketType:{_eq:"BINARY"},expiry:{_gt:$now}},order_by:{expiry:asc},limit:50){ id poolAddress asset intervalSec expiry tradingStart operatorId venueId clobStatus collateral } }`, { now },
   );
-  return data.Market.filter((m) => m.intervalSec && m.asset).map((m) => ({ marketId: m.id, poolAddress: m.poolAddress, asset: m.asset, intervalSec: m.intervalSec ?? "", expiry: m.expiry, tradingStart: m.tradingStart, operatorId: m.operatorId, venueId: m.venueId, status: m.clobStatus ?? "Unknown", collateral: m.collateral }));
+  return data.Market.filter((m) => m.intervalSec && m.asset).map(toLiveMarket);
+}
+
+export async function getMarketById(marketId: string) {
+  const data = await graphql<{ Market: MarketRow[] }>(`query RelayMarket($id: String!) { Market(where:{id:{_eq:$id}},limit:1){ id poolAddress asset intervalSec expiry tradingStart operatorId venueId clobStatus collateral } }`, { id: marketId.toLowerCase() });
+  const market = data.Market[0]; return market ? toLiveMarket(market) : null;
 }
 
 async function rpc(method: string, params: unknown[] = []) {
