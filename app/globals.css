@@ -20,7 +20,16 @@ button { cursor: pointer; }
 ::-webkit-scrollbar-track { background: #0F0F11; }
 ::-webkit-scrollbar-thumb { background: #2A2A2F; border-radius: 8px; }
 
+.ticker { overflow: hidden; white-space: nowrap; }
+.ticker-track { display: inline-flex; gap: 0; width: max-content; animation: ticker 40s linear infinite; }
+@keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+
+.faq-answer { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.25s ease; }
+.faq-answer.open { grid-template-rows: 1fr; }
+.faq-answer > div { overflow: hidden; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none; animation: none; }
   html { scroll-behavior: auto; }
+  .ticker-track { animation: none; }
 }

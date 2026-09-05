@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUpRight, BadgeCheck, FlaskConical, Radio, RotateCw, ShieldCheck } from "lucide-react";
+import { ArrowDown, ArrowUpRight, BadgeCheck, Check, FlaskConical, Minus, Plus, Radio, RotateCw, ShieldCheck } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Health = { network: string; deployment: string; signer: string; persistence: string };
@@ -28,6 +28,20 @@ const PROOF_TXS = [
   { label: "Cancel · same order", hash: "0xaa2b165dd9e486d736dcecedf38fbfdf9dd1ab15abe2d2966968ad214c0a2b2f" },
   { label: "Rollover old · BTC 300s 0x…1318c", hash: "0x6bfe9b2ffb9f1085a08af228ebb2b546f381b466043da76241ac94bba84ab1b8" },
   { label: "Rollover new · successor 0x…1319a", hash: "0xacdc16ded8a862201bbc918af1f52b1bed54bfd5bf8aafd8edfe38ffb07dd8be" },
+];
+const STREAM = [
+  { kind: "relay", text: "BTC 300s 0x…1318c → 0x…1319a · remainder 1 @ 0.10", hash: "0xacdc16ded8a862201bbc918af1f52b1bed54bfd5bf8aafd8edfe38ffb07dd8be" },
+  { kind: "place", text: "BUY_YES 0.10 × 1 · 15m ETH", hash: "0x530560b008164f67bcc6fd6f867a7579dd270f0fd4038be264fdf00f67c59e4f" },
+  { kind: "cancel", text: "same order · confirmed", hash: "0xaa2b165dd9e486d736dcecedf38fbfdf9dd1ab15abe2d2966968ad214c0a2b2f" },
+  { kind: "faucet", text: "10,000 testUSDC · funded signer", hash: "0x2ef2806464c982747359c8611b64d1f5121d69499ffaf51baf090dd95cd49240" },
+];
+const FAQS = [
+  { q: "what if nobody takes my price?", a: "Nothing moves and you lose nothing — the trade simply never happened. Your leftover carries into the next window instead of dying. Once. Then it stops." },
+  { q: "does it keep betting until i lose?", a: "No. One bet, placed once, at your price. It never re-bets after a loss, never chases, never doubles down. If your price gets taken and the round resolves against you, RELAY is done." },
+  { q: "what happens when i win?", a: "Redeeming is between you and DreamDEX. If your YES was right it is worth 1.00 per share. RELAY never touches winnings, takes no cut, reinvests nothing." },
+  { q: "which window does it move to?", a: "One specific window only: the same asset, same length, next time slot — the direct continuation of your question. Not ETH when you bet BTC, not the 15-minute window when you bet the 5-minute one." },
+  { q: "what if the next window looks wrong?", a: "Your money stays put. Ambiguous successor, missing venue, unverified market — any of those means paused, never a guess. Like a relay runner who will not pass to a stranger." },
+  { q: "is the demo real money?", a: "No. The paper tab simulates against live testnet books with no wallet. The operator lane places real testnet orders only with a funded signer — test assets, zero real value." },
 ];
 
 function GlowWord({ children, color = "#C5F04D" }: { children: React.ReactNode; color?: string }) {
@@ -110,20 +124,20 @@ function DemoTab({ markets }: { markets: Market[] }) {
             return;
           }
           const old = markets.find((m) => m.marketId === paper.oldId);
-          const cands = markets
+          const rows = markets
             .filter((m) => old && m.operatorId === old.operatorId && m.venueId === old.venueId && m.asset === old.asset && m.intervalSec === old.intervalSec)
             .filter((m) => m.marketId.toLowerCase() !== paper.oldId.toLowerCase() && Number(m.expiry) > Number(paper.expiry))
             .sort((a, b) => Number(a.expiry) - Number(b.expiry) || a.marketId.localeCompare(b.marketId));
-          if (!cands.length) {
+          if (!rows.length) {
             setPaper((prev) => prev && { ...prev, state: "PAUSED", note: "No next window found. RELAY holds instead of guessing." });
             return;
           }
-          const same = cands.filter((c) => c.expiry === cands[0].expiry).length;
+          const same = rows.filter((c) => c.expiry === rows[0].expiry).length;
           if (same !== 1) {
             setPaper((prev) => prev && { ...prev, state: "PAUSED", note: `${same} markets share the next expiry. Ambiguous, so RELAY holds instead of guessing.` });
             return;
           }
-          const next = cands[0];
+          const next = rows[0];
           setPaper((prev) => prev && { ...prev, state: "RELAYED", newId: next.marketId, newPool: next.poolAddress, newExpiry: next.expiry, note: `Carried ${prev?.remaining} into ${next.asset} ${cadence(next.intervalSec)} ${short(next.marketId)}.` });
           return;
         }
@@ -143,7 +157,7 @@ function DemoTab({ markets }: { markets: Market[] }) {
       {!paper ? (
         <form onSubmit={armPaper}>
           <select aria-label="Demo market" value={market?.marketId || ""} onChange={(e) => setMarketId(e.target.value)} className="w-full rounded-xl border border-[#2A2A2F] bg-[#0F0F11] px-4 py-3 text-sm text-[#EEEEEF] mb-4 focus:outline-none focus:border-[#C5F04D]">
-            {markets.length ? markets.map((item) => <option key={item.marketId} value={item.marketId}>{item.asset} · {cadence(item.intervalSec)} · ends {new Date(Number(item.expiry) * 1000).toLocaleTimeString()}</option>) : <option>Discovering live markets…</option>}
+            {markets.length ? markets.map((item) => <option key={item.marketId} value={item.marketId}>{item.asset} · {cadence(item.intervalSec)} · ends {expTime(item.expiry)}</option>) : <option>Discovering live markets…</option>}
           </select>
           <div className="grid sm:grid-cols-[1fr_1fr_1fr_auto] gap-3 items-end">
             <label className="block font-mono text-[10px] tracking-[0.2em] uppercase text-[#6C6C74]">Side
@@ -170,18 +184,31 @@ function DemoTab({ markets }: { markets: Market[] }) {
             <div className="rounded-xl border border-[#2A2A2F] bg-[#0F0F11] p-4">
               <p className="font-mono text-[10px] tracking-[0.2em] uppercase text-[#6C6C74] mb-2">This window</p>
               <p className="font-mono text-sm">{short(paper.oldId)}</p>
-              <p className="font-mono text-3xl tabular-nums mt-2">{left(new Date(Number(paper.expiry) * 1000).toISOString())}</p>
+              <p className="font-mono text-3xl tabular-nums mt-2">{expLeft(paper.expiry)}</p>
             </div>
             <div className="rounded-xl border border-[#2A2A2F] bg-[#0F0F11] p-4">
               <p className="font-mono text-[10px] tracking-[0.2em] uppercase text-[#6C6C74] mb-2">Next window</p>
               <p className="font-mono text-sm">{paper.newId ? short(paper.newId) : "waiting for lock"}</p>
-              <p className="font-mono text-3xl tabular-nums mt-2">{paper.newExpiry ? left(new Date(Number(paper.newExpiry) * 1000).toISOString()) : "—"}</p>
+              <p className="font-mono text-3xl tabular-nums mt-2">{paper.newExpiry ? expLeft(paper.newExpiry) : "—"}</p>
             </div>
           </div>
           <p className="text-[12px] text-[#A0A0AB] leading-relaxed mb-2">{bookLine}</p>
           {paper.note && <p className="text-[12px] text-[#EEEEEF] leading-relaxed rounded-xl bg-[#0F0F11] border border-[#2A2A2F] px-4 py-3">{paper.note}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+function Faq({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-[#2A2A2F]">
+      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between gap-4 py-5 text-left transition-all hover:scale-[0.995]">
+        <span className="text-lg font-semibold tracking-tight">{q}</span>
+        {open ? <Minus size={16} className="shrink-0 text-[#C5F04D]" /> : <Plus size={16} className="shrink-0 text-[#6C6C74]" />}
+      </button>
+      <div className={`faq-answer ${open ? "open" : ""}`}><div><p className="pb-6 text-[#A0A0AB] leading-relaxed max-w-2xl">{a}</p></div></div>
     </div>
   );
 }
@@ -194,6 +221,7 @@ export function RelayConsole() {
   const [price, setPrice] = useState("0.55");
   const [quantity, setQuantity] = useState("1");
   const [outcome, setOutcome] = useState("YES");
+  const [odds, setOdds] = useState<{ up: string; down: string } | null>(null);
   const [message, setMessage] = useState("Reading the live Shannon relay lane…");
 
   const refresh = async () => {
@@ -206,11 +234,45 @@ export function RelayConsole() {
   useEffect(() => { const initial = window.setTimeout(refresh, 0); const timer = window.setInterval(refresh, 12000); return () => { window.clearTimeout(initial); window.clearInterval(timer); }; }, []);
   const markets = feed?.markets ?? EMPTY_MARKETS;
   const market = useMemo(() => markets.find((m) => m.marketId === selectedId) || markets.find((m) => m.asset === "BTC" && m.intervalSec === "900") || markets[0], [markets, selectedId]);
+
+  useEffect(() => {
+    const pool = market?.poolAddress;
+    if (!pool) return;
+    let stop = false;
+    const read = async () => {
+      try {
+        const res = await fetch(`/api/book?pool=${pool}`);
+        if (!res.ok || stop) return;
+        const { book } = await res.json();
+        const up = (book?.yesAsks?.[0]?.price as string | undefined) ?? null;
+        const down = (book?.noAsks?.[0]?.price as string | undefined) ?? null;
+        if (!stop) setOdds({ up: up ? fromUnits(up) : "—", down: down ? fromUnits(down) : "—" });
+      } catch { /* book unavailable, card keeps countdown */ }
+    };
+    const kick = window.setTimeout(read, 0);
+    const timer = window.setInterval(read, 12000);
+    return () => { stop = true; window.clearTimeout(kick); window.clearInterval(timer); };
+  }, [market?.poolAddress]);
+
   const canArm = health?.signer === "ready" && Boolean(market);
   const arm = (event: FormEvent) => { event.preventDefault(); setMessage(canArm ? "Control token required: submit this intent through the protected operator endpoint." : "Arming is intentionally unavailable until a Shannon testnet signer is configured."); };
 
+  const tape = markets.length ? [...markets, ...markets] : [];
+
   return (
     <main className="min-h-screen bg-[#0F0F11] text-[#EEEEEF] antialiased">
+      <div className="ticker border-b border-[#2A2A2F] bg-[#0F0F11]">
+        <div className="ticker-track py-2 font-mono text-[11px] tracking-[0.14em] uppercase">
+          {tape.length ? tape.map((m, i) => (
+            <span key={`${m.marketId}-${i}`} className="mx-6 text-[#A0A0AB]">
+              <span className="text-[#EEEEEF]">{m.asset}/{cadence(m.intervalSec)}</span>
+              <span className="mx-2 text-[#6C6C74]">closes {expTime(m.expiry)}</span>
+              <span className="text-[#C5F04D]">{m.status}</span>
+            </span>
+          )) : <span className="mx-6 text-[#6C6C74]">connecting to shannon…</span>}
+        </div>
+      </div>
+
       <header className="border-b border-[#2A2A2F]">
         <div className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between">
           <div className="font-extrabold tracking-tight text-xl" style={{ fontFamily: "Syne, sans-serif" }}>
@@ -231,7 +293,7 @@ export function RelayConsole() {
       <section className="px-6 pt-20 pb-24 md:pt-28">
         <div className="max-w-6xl mx-auto grid gap-14 md:grid-cols-[1.4fr_0.9fr] items-end">
           <div>
-            <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">DreamDEX Event Contracts · Somnia Shannon 50312</p>
+            <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">the onchain order that outlives its window</p>
             <h1 className="font-extrabold tracking-tight leading-[0.95] text-5xl md:text-7xl mb-6" style={{ fontFamily: "Syne, sans-serif" }}>
               Set the price.<br />
               <span style={{ WebkitTextStroke: "2px #EEEEEF", color: "transparent" }}>Keep the intent.</span>
@@ -241,54 +303,79 @@ export function RelayConsole() {
             </p>
             <div className="flex flex-wrap gap-3">
               <a href="#demo" className="inline-flex items-center gap-2 rounded-full bg-[#C5F04D] px-6 py-3 text-sm font-semibold text-[#0F0F11] transition-all hover:scale-95 active:scale-90 hover:bg-[#EEEEEF]">
-                Try it paper <ArrowDown size={15} />
+                make your first call <ArrowDown size={15} />
               </a>
               <a href="#proof" className="inline-flex items-center gap-2 rounded-full border border-[#2A2A2F] px-6 py-3 text-sm font-semibold text-[#EEEEEF] transition-all hover:scale-95 active:scale-90 hover:bg-[#C5F04D] hover:text-[#0F0F11] hover:border-[#C5F04D]">
-                Read the proof <ArrowUpRight size={15} />
+                watch it settle <ArrowUpRight size={15} />
               </a>
             </div>
             <p className="font-mono text-[11px] tracking-[0.2em] uppercase text-[#6C6C74] mt-8">Your queue survives the lobby · Chain 50312 · Testnet only</p>
           </div>
           <div className="rounded-2xl border border-[#2A2A2F] bg-[#1A1A1E] p-6">
-            <div className="flex items-center justify-between mb-5">
-              <p className="font-mono text-[11px] tracking-[0.2em] uppercase text-[#6C6C74]">Current window</p>
-              <span className="font-mono text-[11px] tracking-[0.2em] uppercase text-[#C5F04D]">{feed ? "Live" : "Connecting"}</span>
+            <div className="flex items-center justify-between mb-1">
+              <p className="font-extrabold text-2xl tracking-tight lowercase" style={{ fontFamily: "Syne, sans-serif" }}>
+                {market ? `${market.asset.toLowerCase()}-usd` : "—"} <span className="text-[#6C6C74] text-base">{market ? cadence(market.intervalSec) : ""}</span>
+              </p>
+              <span className="font-mono text-[11px] tracking-[0.2em] uppercase text-[#C5F04D]">{feed ? "live" : "connecting"}</span>
             </div>
-            <p className="font-extrabold text-4xl tracking-tight mb-1" style={{ fontFamily: "Syne, sans-serif" }}>
-              {market?.asset || "—"} <span className="text-[#6C6C74] text-2xl">/ {market ? cadence(market.intervalSec) : "—"}</span>
-            </p>
-            <p className="font-mono text-xs text-[#A0A0AB] mb-5">{market ? short(market.marketId) : "discovering live markets"}</p>
+            <p className="font-mono text-[11px] tracking-[0.14em] uppercase text-[#6C6C74] mb-5">closes {expTime(market?.expiry)} · {market ? short(market.marketId) : "—"}</p>
             <p className="font-mono text-5xl tabular-nums tracking-tight mb-5">{expLeft(market?.expiry)}</p>
+            <div className="grid grid-cols-2 gap-2 mb-5">
+              <div className="rounded-xl bg-[#0F0F11] border border-[#2A2A2F] p-4 text-center">
+                <p className="font-mono text-[10px] tracking-[0.2em] text-[#C5F04D] mb-1">▲ UP</p>
+                <p className="font-mono text-2xl">{market?.poolAddress && odds ? odds.up : "—"}</p>
+              </div>
+              <div className="rounded-xl bg-[#0F0F11] border border-[#2A2A2F] p-4 text-center">
+                <p className="font-mono text-[10px] tracking-[0.2em] text-[#FF6537] mb-1">▼ DOWN</p>
+                <p className="font-mono text-2xl">{market?.poolAddress && odds ? odds.down : "—"}</p>
+              </div>
+            </div>
             <div className="border-t border-[#2A2A2F] pt-4 grid gap-2 font-mono text-[11px] text-[#A0A0AB]">
-              <div className="flex justify-between"><span>OPERATOR</span><span className="text-[#EEEEEF]">{market?.operatorId ?? "—"}</span></div>
               <div className="flex justify-between"><span>STATUS</span><span className="text-[#EEEEEF]">{market?.status || "—"}</span></div>
               <div className="flex justify-between"><span>VENUE</span><span className="text-[#EEEEEF]">{short(market?.venueId)}</span></div>
+              <div className="flex justify-between"><span>FEES</span><span className="text-[#C5F04D]">0.00% / 0.00%</span></div>
             </div>
           </div>
         </div>
       </section>
 
-      <section className="px-6 pb-28">
-        <div className="max-w-6xl mx-auto grid sm:grid-cols-3 gap-4">
-          {[
-            { n: "01", title: "Pick a side", body: "BTC goes up this round — yes or no. Same as any prediction market." },
-            { n: "02", title: "Name your price", body: "“I take YES at 60 cents.” Nobody has to take it right now." },
-            { n: "03", title: "Walk away", body: "Round ends, your leftover moves to the next one by itself. Once. Then it stops." },
-          ].map((s) => (
-            <div key={s.n} className="rounded-2xl border border-[#2A2A2F] bg-[#1A1A1E] p-6">
-              <p className="font-mono text-[11px] tracking-[0.2em] text-[#C5F04D] mb-3">{s.n}</p>
-              <p className="font-bold tracking-tight text-lg mb-2" style={{ fontFamily: "Syne, sans-serif" }}>{s.title}</p>
-              <p className="text-sm text-[#A0A0AB] leading-relaxed">{s.body}</p>
+      <section className="px-6 pb-24">
+        <div className="max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-px rounded-2xl overflow-hidden border border-[#2A2A2F] bg-[#2A2A2F]">
+          {[["06", "verified transactions", "every one on shannon explorer"], ["02", "windows rolled", "distinct market ids, one series"], ["01", "remainder carried", "same price, exactly once"], ["00", "guesses", "ambiguity pauses, never places"]].map(([n, t, s]) => (
+            <div key={t} className="bg-[#0F0F11] p-6">
+              <p className="font-extrabold text-4xl tracking-tight mb-1" style={{ fontFamily: "Syne, sans-serif" }}>{n}</p>
+              <p className="text-sm font-semibold">{t}</p>
+              <p className="font-mono text-[11px] text-[#6C6C74] mt-1">{s}</p>
             </div>
           ))}
         </div>
       </section>
 
+      <section className="px-6 pb-28">
+        <div className="max-w-6xl mx-auto">
+          <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">how it works</p>
+          <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-12 lowercase" style={{ fontFamily: "Syne, sans-serif" }}>three taps, then walk away.</h2>
+          <div className="grid sm:grid-cols-3 gap-4">
+            {[
+              { n: "01", title: "Pick a side", body: "BTC goes up this round — yes or no. Same as any prediction market." },
+              { n: "02", title: "Name your price", body: "“I take YES at 60 cents.” Nobody has to take it right now." },
+              { n: "03", title: "Walk away", body: "Round ends, your leftover moves to the next one by itself. Once. Then it stops." },
+            ].map((s) => (
+              <div key={s.n} className="rounded-2xl border border-[#2A2A2F] bg-[#1A1A1E] p-6">
+                <p className="font-mono text-[11px] tracking-[0.2em] text-[#C5F04D] mb-3">{s.n}</p>
+                <p className="font-bold tracking-tight text-lg mb-2" style={{ fontFamily: "Syne, sans-serif" }}>{s.title}</p>
+                <p className="text-sm text-[#A0A0AB] leading-relaxed">{s.body}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       <section id="demo" className="px-6 py-28 border-t border-[#2A2A2F]">
         <div className="max-w-6xl mx-auto">
-          <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">Live relay lane</p>
-          <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-6" style={{ fontFamily: "Syne, sans-serif" }}>Watch it survive a round.</h2>
-          <p className="text-[#A0A0AB] text-lg leading-relaxed mb-8 max-w-2xl">Paper demo runs on live testnet markets with no wallet. The operator lane below it is the real machine — read-only until a funded signer is configured.</p>
+          <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">live relay lane</p>
+          <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-6 lowercase" style={{ fontFamily: "Syne, sans-serif" }}>watch it survive a round.</h2>
+          <p className="text-[#A0A0AB] text-lg leading-relaxed mb-8 max-w-2xl">Paper demo runs on live testnet markets with no wallet. The operator lane beside it is the real machine — read-only until a funded signer is configured.</p>
           <div className="flex gap-2 mb-6">
             {(["live", "demo"] as const).map((t) => (
               <button key={t} onClick={() => setTab(t)} className={`rounded-full px-5 py-2.5 text-[11px] font-extrabold tracking-[0.08em] transition-all hover:scale-95 active:scale-90 ${tab === t ? "bg-[#C5F04D] text-[#0F0F11]" : "border border-[#2A2A2F] text-[#A0A0AB] hover:text-[#EEEEEF]"}`}>
@@ -335,21 +422,31 @@ export function RelayConsole() {
       <section id="proof" className="px-6 py-28 border-t border-[#2A2A2F]">
         <div className="max-w-6xl mx-auto grid gap-12 md:grid-cols-[1fr_1fr]">
           <div>
-            <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">Execution proof</p>
-            <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-6" style={{ fontFamily: "Syne, sans-serif" }}>Every claim has a receipt.</h2>
+            <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">live settlement</p>
+            <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-6 lowercase" style={{ fontFamily: "Syne, sans-serif" }}>every claim has a receipt.</h2>
             <p className="text-[#A0A0AB] text-lg leading-relaxed mb-8">Real Shannon transactions. Your leftover moved from one window to the next — same question, same price, one move, then stop.</p>
             <div className="rounded-2xl border border-[#2A2A2F] bg-[#1A1A1E] divide-y divide-[#2A2A2F]">
+              {STREAM.map((s) => (
+                <a key={s.hash} href={`${EXPLORER}${s.hash}`} target="_blank" rel="noreferrer" className="flex items-center gap-3 px-5 py-4 transition-all hover:scale-[0.99] hover:bg-[#0F0F11] group font-mono text-[12px]">
+                  <Check size={14} className="shrink-0 text-[#C5F04D]" />
+                  <span className="text-[#6C6C74] w-14 shrink-0">{s.kind}</span>
+                  <span className="truncate text-[#A0A0AB]">{s.text}</span>
+                  <span className="ml-auto shrink-0 text-[#6C6C74] group-hover:text-[#C5F04D] transition-colors">{short(s.hash)}</span>
+                </a>
+              ))}
+            </div>
+            <div className="mt-6 rounded-2xl border border-[#2A2A2F] bg-[#1A1A1E] divide-y divide-[#2A2A2F]">
               {PROOF_TXS.map((tx) => (
-                <a key={tx.hash} href={`${EXPLORER}${tx.hash}`} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 px-5 py-4 transition-all hover:scale-[0.99] hover:bg-[#0F0F11] group">
-                  <div><p className="text-sm font-semibold">{tx.label}</p><p className="font-mono text-[11px] text-[#6C6C74]">{short(tx.hash)}</p></div>
-                  <ArrowUpRight size={16} className="shrink-0 text-[#6C6C74] group-hover:text-[#C5F04D] transition-colors" />
+                <a key={tx.hash} href={`${EXPLORER}${tx.hash}`} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-4 px-5 py-3 transition-all hover:bg-[#0F0F11] group">
+                  <div><p className="text-[13px] font-semibold">{tx.label}</p><p className="font-mono text-[11px] text-[#6C6C74]">{short(tx.hash)}</p></div>
+                  <ArrowUpRight size={15} className="shrink-0 text-[#6C6C74] group-hover:text-[#C5F04D] transition-colors" />
                 </a>
               ))}
             </div>
           </div>
           <div>
-            <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">Console health</p>
-            <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-6" style={{ fontFamily: "Syne, sans-serif" }}>Safe by default.</h2>
+            <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">console health</p>
+            <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-6 lowercase" style={{ fontFamily: "Syne, sans-serif" }}>safe by default.</h2>
             <p className="text-[#A0A0AB] text-lg leading-relaxed mb-8">Read-only until a funded testnet signer is configured server side. No browser key custody. Winnings are between you and DreamDEX — RELAY never touches them.</p>
             <div className="rounded-2xl border border-[#2A2A2F] bg-[#1A1A1E] divide-y divide-[#2A2A2F]">
               {[["Network", health?.network || "Checking"], ["Contracts", health?.deployment || "Checking"], ["Signer", health?.signer || "Checking"], ["Ledger", health?.persistence || "Checking"]].map(([k, v]) => (
@@ -366,15 +463,16 @@ export function RelayConsole() {
 
       <section className="px-6 py-28 border-t border-[#2A2A2F]">
         <div className="max-w-6xl mx-auto">
-          <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">Why it is safe to walk away</p>
-          <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-12" style={{ fontFamily: "Syne, sans-serif" }}>Bounded by design.</h2>
+          <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">built different</p>
+          <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-12 lowercase" style={{ fontFamily: "Syne, sans-serif" }}>bounded by design.</h2>
           <div className="grid sm:grid-cols-3 gap-4">
             {[
-              { icon: ShieldCheck, title: "One bet, never two", body: "Your leftover moves once into the next window. No re-betting after a loss, no doubling down, ever." },
-              { icon: BadgeCheck, title: "Right window or nothing", body: "Same question, next time slot, proven onchain. Anything ambiguous and your money stays put." },
-              { icon: RotateCw, title: "Your winnings are yours", body: "If your price gets taken and the round resolves for you, redeem with DreamDEX directly. RELAY takes no cut." },
+              { icon: ShieldCheck, n: "01", title: "One bet, never two", body: "Your leftover moves once into the next window. No re-betting after a loss, no doubling down, ever." },
+              { icon: BadgeCheck, n: "02", title: "Right window or nothing", body: "Same question, next time slot, proven onchain. Anything ambiguous and your money stays put." },
+              { icon: RotateCw, n: "03", title: "Your winnings are yours", body: "If your price gets taken and the round resolves for you, redeem with DreamDEX directly. RELAY takes no cut." },
             ].map((c) => (
               <div key={c.title} className="rounded-2xl border border-[#2A2A2F] bg-[#1A1A1E] p-6 transition-all hover:scale-[0.98] hover:border-[#C5F04D]">
+                <p className="font-mono text-[11px] tracking-[0.2em] text-[#C5F04D] mb-3">{c.n}</p>
                 <c.icon size={18} className="text-[#C5F04D] mb-4" />
                 <p className="font-bold tracking-tight mb-2" style={{ fontFamily: "Syne, sans-serif" }}>{c.title}</p>
                 <p className="text-sm text-[#A0A0AB] leading-relaxed">{c.body}</p>
@@ -384,14 +482,27 @@ export function RelayConsole() {
         </div>
       </section>
 
-      <footer className="px-6 py-12 border-t border-[#2A2A2F]">
-        <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-4 font-mono text-[11px] tracking-[0.2em] uppercase text-[#6C6C74]">
-          <span>RELAY · Shannon 50312 · Your queue survives the lobby</span>
-          <div className="flex gap-5">
-            <a href="https://dorahacks.io/hackathon/event-contracts/detail" target="_blank" rel="noreferrer" className="hover:text-[#EEEEEF] transition-colors">DoraHacks</a>
-            <a href="https://docs.dreamdex.io/developers/event-contracts" target="_blank" rel="noreferrer" className="hover:text-[#EEEEEF] transition-colors">Docs</a>
-            <a href="https://github.com/ronkenx9/relay" target="_blank" rel="noreferrer" className="hover:text-[#EEEEEF] transition-colors">Repo</a>
+      <section className="px-6 py-28 border-t border-[#2A2A2F]">
+        <div className="max-w-6xl mx-auto">
+          <p className="font-mono text-xs tracking-[0.2em] text-[#6C6C74] uppercase mb-6">faqs</p>
+          <h2 className="text-4xl md:text-5xl font-bold tracking-tight leading-tight mb-8 lowercase" style={{ fontFamily: "Syne, sans-serif" }}>asked, answered.</h2>
+          <div className="border-t border-[#2A2A2F]">
+            {FAQS.map((f) => <Faq key={f.q} q={f.q} a={f.a} />)}
           </div>
+        </div>
+      </section>
+
+      <footer className="px-6 py-12 border-t border-[#2A2A2F]">
+        <div className="max-w-6xl mx-auto">
+          <div className="flex flex-wrap items-center justify-between gap-4 font-mono text-[11px] tracking-[0.2em] uppercase text-[#6C6C74] mb-6">
+            <span>RELAY · Shannon 50312 · Your queue survives the lobby</span>
+            <div className="flex gap-5">
+              <a href="https://dorahacks.io/hackathon/event-contracts/detail" target="_blank" rel="noreferrer" className="hover:text-[#EEEEEF] transition-colors">DoraHacks</a>
+              <a href="https://docs.dreamdex.io/developers/event-contracts" target="_blank" rel="noreferrer" className="hover:text-[#EEEEEF] transition-colors">Docs</a>
+              <a href="https://github.com/ronkenx9/relay" target="_blank" rel="noreferrer" className="hover:text-[#EEEEEF] transition-colors">Repo</a>
+            </div>
+          </div>
+          <p className="text-[11px] leading-relaxed text-[#6C6C74] max-w-3xl">Testnet demonstration only. Nothing here is financial advice, an offer, or a recommendation. Trading prediction markets involves risk of total loss of the assets committed. DreamDEX Event Contracts are not available in all jurisdictions.</p>
         </div>
       </footer>
     </main>
