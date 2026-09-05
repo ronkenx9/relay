@@ -1,12 +1,11 @@
-import { env } from "cloudflare:workers";
+import { platformEnv } from "../../../../lib/platform-env";
+import { ready } from "../../../../db";
 import { activeIntent, currentHop, recordPlacement, recordReconciliation, setIntentState, startSuccessorHop } from "../../../../lib/intents";
 import { selectDirectSuccessor, unitsToDecimal } from "../../../../lib/relay-core";
 import { assertTradableMarket, placeBoundedLimit, reconcileOrder, reconcileTerminalOrder } from "../../../../lib/somnia-execution";
 import { getLiveMarkets, getMarketById } from "../../../../lib/somnia";
 
-export const runtime = "edge";
-
-const config = () => ({ privateKey: env.RELAY_PRIVATE_KEY as `0x${string}`, maxCollateral: env.RELAY_MAX_COLLATERAL || "10", maxQuantity: env.RELAY_MAX_QUANTITY || "10" });
+const config = () => ({ privateKey: platformEnv.RELAY_PRIVATE_KEY as `0x${string}`, maxCollateral: platformEnv.RELAY_MAX_COLLATERAL || "10", maxQuantity: platformEnv.RELAY_MAX_QUANTITY || "10" });
 const fail = async (intentId: string, error: unknown) => {
   const message = error instanceof Error ? error.message : "Unknown worker failure.";
   await setIntentState(intentId, "PAUSED", { error: message });
@@ -14,8 +13,9 @@ const fail = async (intentId: string, error: unknown) => {
 };
 
 export async function POST(request: Request): Promise<Response> {
-  if (!env.RELAY_WORKER_TOKEN || request.headers.get("x-relay-worker-token") !== env.RELAY_WORKER_TOKEN) return Response.json({ error: "Worker token required." }, { status: 401 });
-  if (!env.RELAY_PRIVATE_KEY) return Response.json({ state: "BLOCKED", reason: "No dedicated Shannon testnet signer is configured." }, { status: 503 });
+  if (!platformEnv.RELAY_WORKER_TOKEN || request.headers.get("x-relay-worker-token") !== platformEnv.RELAY_WORKER_TOKEN) return Response.json({ error: "Worker token required." }, { status: 401 });
+  if (!platformEnv.RELAY_PRIVATE_KEY) return Response.json({ state: "BLOCKED", reason: "No dedicated Shannon testnet signer is configured." }, { status: 503 });
+  await ready();
   const intent = await activeIntent();
   if (!intent) return Response.json({ state: "IDLE", reason: "No non-terminal intent." });
   if (intent.state === "PLACING") return fail(intent.id, "Placement outcome is uncertain after an interrupted worker run. Reconcile manually; RELAY will not resend.");
